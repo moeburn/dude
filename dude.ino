@@ -6,8 +6,6 @@
 #include <BlynkSimpleEsp8266.h>
 #include <Wire.h>
 #include "time.h"
-//#include "DHTesp.h"
-#include "DHT.h"
 #include "Adafruit_SHT31.h"
 
 Adafruit_SHT31 sht31 = Adafruit_SHT31();
@@ -19,10 +17,7 @@ Adafruit_SHT31 sht31 = Adafruit_SHT31();
 int updateSeconds = 60;
 int sampleSeconds = 5;
 
-Average<float> tempAvg(updateSeconds / sampleSeconds);
-Average<float> humAvg(updateSeconds / sampleSeconds);
-Average<float> wifiAvg(updateSeconds / sampleSeconds);
-float tempAvgHolder, humAvgHolder;
+
 
 
 
@@ -30,9 +25,6 @@ float tempoffset = 0;
 
 
 
-//#define DHTTYPE DHT22
-uint8_t pinDHT  = 2;
-DHT dht (pinDHT, DHT22);
 
 
 int LED2pin = 0;
@@ -63,9 +55,6 @@ BLYNK_WRITE(V10)
     terminal.println("wifi");
 
     terminal.println("blink");
-    terminal.println("off0");
-    terminal.println("off05");
-    terminal.println("off10");
     terminal.println("temps");
      terminal.println("==End of list.==");
     }
@@ -88,28 +77,10 @@ BLYNK_WRITE(V10)
      blinkgreen();
     }
 
-            if (String("off0") == param.asStr()) {
-              terminal.println("Setting offset to 0");
-      tempoffset = 0;
-    }
 
-    if (String("off05") == param.asStr()) {
-      terminal.println("Setting offset to 0.5");
-      tempoffset = -0.5;
-    }
-        if (String("off10") == param.asStr()) {
-          terminal.println("Setting offset to 1.0");
-      tempoffset = -1.0;
-    }
         if (String("temps") == param.asStr()) {
-                  humDHT = dht.readHumidity();
-        tempDHT = dht.readTemperature();
                tempSHT = sht31.readTemperature();
        humSHT = sht31.readHumidity();
-          terminal.print("Temp: ");
-          terminal.print(tempDHT + tempoffset);
-          terminal.print(", Hum: ");
-          terminal.println(humDHT);
           terminal.print("TempSHT: ");
           terminal.print(tempSHT);
           terminal.print(", HumSHT: ");
@@ -185,7 +156,7 @@ void setup(void) {
     Serial.println(WiFi.localIP());
     Blynk.config(auth, IPAddress(192, 168, 50, 197), 8080);
     Blynk.connect();
-    terminal.println("**********DUDE v0.4***********");
+    terminal.println("**********DUDE v0.5***********");
     printLocalTime();
     terminal.print("Connected to ");
     terminal.println(ssid);
@@ -197,7 +168,7 @@ void setup(void) {
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
       request->send(200, "text/plain", "D - Hey sup dude");
     });
-     dht.begin ();
+
 
     AsyncElegantOTA.begin(&server);    // Start ElegantOTA
     server.begin();
@@ -214,32 +185,14 @@ void loop(void) {
         millisBlynk = millis();
         tempSHT = sht31.readTemperature();
        humSHT = sht31.readHumidity();
-               humDHT = dht.readHumidity();
-        tempDHT = dht.readTemperature();
-        tempAvgHolder = tempDHT;
-        humAvgHolder = humDHT;
         abshum = (6.112 * pow(2.71828, ((17.67 * tempSHT)/(tempSHT + 243.5))) * humSHT * 2.1674)/(273.15 + tempSHT);
-        abshum2 = (6.112 * pow(2.71828, ((17.67 * tempDHT)/(tempDHT + 243.5))) * humDHT * 2.1674)/(273.15 + tempDHT);
         dewpoint = tempSHT - ((100 - humSHT)/5);
         humidex = tempSHT + 0.5555 * (6.11 * pow(2.71828, 5417.7530*( (1/273.16) - (1/(273.15 + dewpoint)) ) ) - 10);
-        Blynk.virtualWrite(V1, humDHT);
-        Blynk.virtualWrite(V2, tempDHT);
         if (abshum > 0) {Blynk.virtualWrite(V4, abshum);}
         if (dewpoint > 0) {Blynk.virtualWrite(V5, dewpoint);}
         if (humidex > 0) {Blynk.virtualWrite(V6, humidex);}
         //Blynk.virtualWrite(V7, wifiAvg.mean());
         Blynk.virtualWrite(V8, tempSHT);
         Blynk.virtualWrite(V9, humSHT);
-        Blynk.virtualWrite(V11, abshum2);
     }
-    
-
-    
 }
-
-
-
-
-
-
-
