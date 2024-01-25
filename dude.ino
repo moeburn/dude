@@ -19,6 +19,13 @@
 //#include <DallasTemperature.h>
 //#include <NonBlockingDallas.h>
 #include "Adafruit_SHT4x.h"
+#include <Adafruit_SCD30.h>
+Adafruit_SCD30  scd30;
+#define SCD_OFFSET 210
+
+#define SD_CS 5
+String dataMessage;
+
 
 Adafruit_SHT4x sht4 = Adafruit_SHT4x();
   sensors_event_t humidity, temp;
@@ -41,7 +48,7 @@ static const int DHT_SENSOR_PIN = 2;
 int updateSeconds = 60;
 int sampleSeconds = 5;
 
-float gasBME, presBME, bmeiaq, bmeiaqAccuracy, bmestaticIaq, bmeco2Equivalent, bmebreathVocEquivalent, bmestabStatus, bmerunInStatus, bmegasPercentage, dallastemp, tempSHT, humSHT;
+float tempSCD, humSCD, co2SCD, gasBME, presBME, bmeiaq, bmeiaqAccuracy, bmestaticIaq, bmeco2Equivalent, bmebreathVocEquivalent, bmestabStatus, bmerunInStatus, bmegasPercentage, dallastemp, tempSHT, humSHT;
 
 #define STATE_SAVE_PERIOD UINT32_C(720 * 60 * 1000) /* 360 minutes - 4 times a day */
 #define PANIC_LED 2
@@ -149,6 +156,8 @@ BLYNK_WRITE(V10)
     terminal.println("bsec");
     terminal.println("temps");
     terminal.println("erase");
+    terminal.println("recal");
+    terminal.println("scd");
      terminal.println("==End of list.==");
     }
         if (String("wifi") == param.asStr()) 
@@ -180,7 +189,13 @@ BLYNK_WRITE(V10)
           terminal.print(", TempSHT: ");
           terminal.print(tempSHT);
           terminal.print(", HumSHT: ");
-          terminal.println(humSHT);
+          terminal.print(humSHT);
+        terminal.print(", tempSCD =");
+        terminal.print(tempSCD);
+        terminal.print(", humSCD =");
+        terminal.print(humSCD);
+        terminal.print(", CO2 =");
+        terminal.println(co2SCD);
     }
     if (String("bsec") == param.asStr()) {
         terminal.print("bmeiaq[v23],bmeiaqAccuracy[v24],bmestaticIaq[v25],bmeco2Equivalent[v26],bmebreathVocEquivalent[v27],bmestabStatus[v28],bmerunInStatus[v29],bmegasPercentage[v30]:");
@@ -208,6 +223,32 @@ BLYNK_WRITE(V10)
 
       EEPROM.commit();
       terminal.println("Erase complete.");
+      terminal.flush();
+    }
+        if (String("recal") == param.asStr()) {
+      if (!scd30.forceRecalibrationWithReference(400)){
+        terminal.println("Failed to force recalibration with reference");
+      }
+      else {terminal.println("> Recalibrated CO2 sensor.");}
+      terminal.flush();
+    }
+    if (String("scd") == param.asStr()) {
+      if (!scd30.startContinuousMeasurement(int(presBME))){
+        terminal.println("Failed to set ambient pressure offset");
+        terminal.flush();
+      }
+      terminal.print("Measurement interval: ");
+      terminal.print(scd30.getMeasurementInterval());
+      terminal.println(" seconds");
+      terminal.print("Ambient pressure offset: ");
+      terminal.print(scd30.getAmbientPressureOffset());
+      terminal.println(" mBar");
+      terminal.print("Temperature offset: ");
+      terminal.print((float)scd30.getTemperatureOffset()/100.0);
+      terminal.println(" degrees C");
+      terminal.print("Forced Recalibration reference: ");
+      terminal.print(scd30.getForcedCalibrationReference());
+      terminal.println(" ppm");
       terminal.flush();
     }
     terminal.flush();
@@ -503,6 +544,27 @@ void setup(void) {
     terminal.println(ssid);
     terminal.print("IP address: ");
     terminal.println(WiFi.localIP());
+  if (!scd30.begin()) {
+    terminal.println("Failed to find SCD30 chip");
+    terminal.flush();
+  }
+  else
+  {
+    scd30.setTemperatureOffset(SCD_OFFSET); // subtract 2 degrees
+    terminal.print("Measurement interval: ");
+    terminal.print(scd30.getMeasurementInterval());
+    terminal.println(" seconds");
+    terminal.print("Ambient pressure offset: ");
+    terminal.print(scd30.getAmbientPressureOffset());
+    terminal.println(" mBar");
+    terminal.print("Temperature offset: ");
+    terminal.print((float)scd30.getTemperatureOffset()/100.0);
+    terminal.println(" degrees C");
+    terminal.print("Forced Recalibration reference: ");
+    terminal.print(scd30.getForcedCalibrationReference());
+    terminal.println(" ppm");
+    terminal.flush();
+  }
 }
 
 void loop(void) {
@@ -510,8 +572,24 @@ void loop(void) {
       if (!envSensor.run()) {
         checkBsecStatus (envSensor);
     }
-      float dtemperature;
-  float dhumidity;
+  if (scd30.dataReady()) {
+        if (!scd30.read()){ 
+      terminal.println("Error reading CO2 sensor data"); 
+      return; 
+    }
+    tempSCD = scd30.temperature;
+    humSCD = scd30.relative_humidity;
+    co2SCD = scd30.CO2;
+  }
+
+  every (120000)
+  {
+       if (!scd30.startContinuousMeasurement(int(presBME))){
+     terminal.println("Failed to set ambient pressure offset");
+     terminal.flush();
+
+   }
+  }
 
   /* Measure temperature and humidity.  If the functions returns
      true, then a measurement is available. */
@@ -556,6 +634,9 @@ void loop(void) {
         //if (humDHT > 0) {Blynk.virtualWrite(V36, humDHT);}
         if (tempSHT > 0) {Blynk.virtualWrite(V37, tempSHT);}
         if (humSHT > 0) {Blynk.virtualWrite(V38, humSHT);}
+        Blynk.virtualWrite(V42, tempSCD);
+        Blynk.virtualWrite(V43, humSCD);
+        Blynk.virtualWrite(V45, co2SCD);
         }
     }
 }
