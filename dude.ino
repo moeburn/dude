@@ -26,6 +26,10 @@ Adafruit_SCD30  scd30;
 #define SD_CS 5
 String dataMessage;
 
+#define every(interval) \
+    static uint32_t __every__##interval = millis(); \
+    if (millis() - __every__##interval >= interval && (__every__##interval = millis()))
+
 
 Adafruit_SHT4x sht4 = Adafruit_SHT4x();
   sensors_event_t humidity, temp;
@@ -254,6 +258,8 @@ BLYNK_WRITE(V10)
     terminal.flush();
 
 }
+
+
 
 void printLocalTime()
 {
