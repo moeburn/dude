@@ -116,6 +116,8 @@ int LED1pin = 14;
 const char* ssid = "mikesnet";
 const char* password = "springchicken";
 char auth[] = "Eg3J3WA0zM3MA7HGJjT_P6uUh73wQ2ed"; //BLYNK
+char remoteAuth2[] = "pO--Yj8ksH2fjJLMW6yW9trkHBhd9-wc"; //indiana clock auth
+char remoteAuth3[] = "qS5PQ8pvrbYzXdiA4I6uLEWYfeQrOcM4"; //indiana clock auth
 
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = -18000;   //Replace with your GMT offset (seconds)
@@ -150,6 +152,14 @@ dallastemp = temperature;
 
   return( false );
 }*/
+
+WidgetBridge bridge2(V60);
+WidgetBridge bridge3(V70);
+
+BLYNK_CONNECTED() {
+  bridge2.setAuthToken (remoteAuth2);
+  bridge3.setAuthToken (remoteAuth3);
+}
 
 BLYNK_WRITE(V10)
 {
@@ -467,11 +477,13 @@ void setup(void) {
     Serial.println(WiFi.localIP());
     Blynk.config(auth, IPAddress(192, 168, 50, 197), 8080);
     Blynk.connect();
+    Serial.println("Blynk connected");
   terminal.println("Adafruit SHT4x test");
   if (! sht4.begin()) {
     terminal.println("Couldn't find SHT4x");
-    while (1) delay(1);
+    //while (1) delay(1);
   }
+  Serial.println("SHT connected");
   terminal.println("Found SHT4x sensor");
   terminal.print("terminal number 0x");
   terminal.println(sht4.readSerial(), HEX);
@@ -487,6 +499,7 @@ void setup(void) {
     AsyncElegantOTA.begin(&server);    // Start ElegantOTA
     server.begin();
     terminal.println("HTTP server started");
+    Serial.println("HTTP connected");
        terminal.flush();
 
     bsecSensor sensorList[13] = {
@@ -543,7 +556,7 @@ void setup(void) {
 
   String output = "\nBSEC library version " + String(envSensor.version.major) + "." + String(envSensor.version.minor) + "." + String(envSensor.version.major_bugfix) + "." + String(envSensor.version.minor_bugfix);
                 //terminal.clear();
-    terminal.println("**********DUDE v0.6***********");
+    terminal.println("**********DUDE v0.8***********");
     terminal.println(output);
     printLocalTime();
     terminal.print("Connected to ");
@@ -571,6 +584,7 @@ void setup(void) {
     terminal.println(" ppm");
     terminal.flush();
   }
+  Serial.println("Setup complete");
 }
 
 void loop(void) {
@@ -640,6 +654,11 @@ void loop(void) {
         //if (humDHT > 0) {Blynk.virtualWrite(V36, humDHT);}
         if (tempSHT > 0) {Blynk.virtualWrite(V37, tempSHT);}
         if (humSHT > 0) {Blynk.virtualWrite(V38, humSHT);}
+        bridge3.virtualWrite(V91, tempSHT);
+        bridge3.virtualWrite(V92, humSHT);
+        bridge3.virtualWrite(V93, co2SCD);
+        bridge3.virtualWrite(V94, presBME);
+        bridge2.virtualWrite(V94, presBME);
         Blynk.virtualWrite(V42, tempSCD);
         Blynk.virtualWrite(V43, humSCD);
         Blynk.virtualWrite(V45, co2SCD);
