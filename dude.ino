@@ -2,10 +2,12 @@
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
 #include <ESPAsyncWebServer.h>
+#include <ESPAsyncWiFiManager.h> 
 #include <AsyncElegantOTA.h>
 #include <BlynkSimpleEsp8266.h>
 #include <Wire.h>
 #include "time.h"
+   
 
 #include <Average.h>
 #if defined(ARDUINO_ARCH_ESP32) || (ARDUINO_ARCH_ESP8266)
@@ -14,10 +16,13 @@
 #endif
 #include <bsec2.h>
 #include "config/bme680_iaq_33v_3s_28d/bsec_iaq.h"
-////#include <dht_nonblocking.h>
-//#include <OneWire.h>
-//#include <DallasTemperature.h>
-//#include <NonBlockingDallas.h>
+
+#include "Plantower_PMS7003.h"
+#include <SoftwareSerial.h>
+char output[256];
+Plantower_PMS7003 pms7003 = Plantower_PMS7003();
+SoftwareSerial SoftSerial1(14, 12);
+
 #include "Adafruit_SHT4x.h"
 #include <Adafruit_SCD30.h>
 Adafruit_SCD30  scd30;
@@ -131,7 +136,7 @@ float humDHT, tempDHT, abshum, abshum2, dewpoint, humidex, tempBME, humBME;
 WidgetTerminal terminal(V10);
 
 AsyncWebServer server(80);
-
+DNSServer dns;
 /*void handleTemperatureChange(float temperature, bool valid, int deviceIndex){
 dallastemp = temperature;
 }*/
@@ -161,6 +166,8 @@ BLYNK_CONNECTED() {
   bridge3.setAuthToken (remoteAuth3);
 }
 
+unsigned int up3, up5, up10, up25, up50, up100;
+
 BLYNK_WRITE(V10)
 {
     if (String("help") == param.asStr()) 
@@ -172,6 +179,7 @@ BLYNK_WRITE(V10)
     terminal.println("erase");
     terminal.println("recal");
     terminal.println("scd");
+    terminal.println("particles");
      terminal.println("==End of list.==");
     }
         if (String("wifi") == param.asStr()) 
@@ -240,7 +248,7 @@ BLYNK_WRITE(V10)
       terminal.flush();
     }
         if (String("recal") == param.asStr()) {
-      if (!scd30.forceRecalibrationWithReference(400)){
+      if (!scd30.forceRecalibrationWithReference(420)){
         terminal.println("Failed to force recalibration with reference");
       }
       else {terminal.println("> Recalibrated CO2 sensor.");}
@@ -264,6 +272,9 @@ BLYNK_WRITE(V10)
       terminal.print(scd30.getForcedCalibrationReference());
       terminal.println(" ppm");
       terminal.flush();
+    }
+    if (String("particles") == param.asStr()) {
+      readPMSverbose();
     }
     terminal.flush();
 
@@ -440,9 +451,48 @@ bool saveState(Bsec2 bsec)
     return true;
 }
 
+void readPMSverbose(void){
+        sprintf(output, "\nSensor Version: %d    Error Code: %d\n",
+                      pms7003.getHWVersion(),
+                      pms7003.getErrorCode());
+        terminal.print(output);
 
+        sprintf(output, "    PM1.0 (ug/m3): %2d     [atmos: %d]\n",
+                      pms7003.getPM_1_0(),
+                      pms7003.getPM_1_0_atmos());              
+        terminal.print(output);
+        sprintf(output, "    PM2.5 (ug/m3): %2d     [atmos: %d]\n",
+                      pms7003.getPM_2_5(),
+                      pms7003.getPM_2_5_atmos());
+        terminal.print(output);
+        sprintf(output, "    PM10  (ug/m3): %2d     [atmos: %d]\n",
+                      pms7003.getPM_10_0(),
+                      pms7003.getPM_10_0_atmos());              
+        terminal.print(output);
 
+        sprintf(output, "\n    RAW: %2d[>0.3] %2d[>0.5] %2d[>1.0] %2d[>2.5] %2d[>5.0] %2d[>10]\n",
+                      pms7003.getRawGreaterThan_0_3(),
+                      pms7003.getRawGreaterThan_0_5(),
+                      pms7003.getRawGreaterThan_1_0(),
+                      pms7003.getRawGreaterThan_2_5(),
+                      pms7003.getRawGreaterThan_5_0(),
+                      pms7003.getRawGreaterThan_10_0());
+        terminal.print(output);
+}
 
+void readPMS(void){
+ if (pms7003.hasNewData()) {
+
+       up3 = pms7003.getRawGreaterThan_0_3();
+       up5 = pms7003.getRawGreaterThan_0_5();
+       up10 = pms7003.getRawGreaterThan_1_0();
+       up25 = pms7003.getRawGreaterThan_2_5();
+       up50 = pms7003.getRawGreaterThan_5_0();
+       up100 = pms7003.getRawGreaterThan_10_0();
+   // firstvalue = 0;
+  }
+
+}
 
 
 
@@ -454,10 +504,15 @@ void setup(void) {
     for(int i=12; i<=16; i++) {
     pinMode(i, INPUT_PULLUP);
   }
-    Serial.begin(115200);
+  Serial.begin(9600);
+  SoftSerial1.begin(9600);
+  pms7003.init(&SoftSerial1);
+
     WiFi.mode(WIFI_STA);
     WiFi.setPhyMode(WIFI_PHY_MODE_11B);
-    WiFi.begin(ssid, password);
+    AsyncWiFiManager wifiManager(&server,&dns);
+    wifiManager.autoConnect("Dude Setup");
+    //WiFi.begin(ssid, password);
     Serial.println("");
     // Wait for connection
     while (WiFi.status() != WL_CONNECTED) 
@@ -619,7 +674,8 @@ void loop(void) {
     humDHT = dhumidity;
   }*/
   if (WiFi.status() == WL_CONNECTED) {Blynk.run();} 
-
+    pms7003.updateFrame();
+    readPMS();
     if  (millis() - millisBlynk >= (updateSeconds * 1000))  //if it's been 30 seconds
     {
         millisBlynk = millis();
@@ -639,7 +695,14 @@ void loop(void) {
         Blynk.virtualWrite(V8, tempBME);
         Blynk.virtualWrite(V9, humBME);
         Blynk.virtualWrite(V11, presBME);
-        //Blynk.virtualWrite(V12, dallastemp);
+
+        Blynk.virtualWrite(V12, up3);
+        Blynk.virtualWrite(V13, up5);
+        Blynk.virtualWrite(V14, up10);
+        Blynk.virtualWrite(V15, up25);
+        Blynk.virtualWrite(V16, up50);
+        Blynk.virtualWrite(V17, up100);
+
         Blynk.virtualWrite(V23, bmeiaq);
         Blynk.virtualWrite(V24, bmeiaqAccuracy);
         Blynk.virtualWrite(V25, bmestaticIaq);
