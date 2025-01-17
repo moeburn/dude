@@ -17,13 +17,28 @@
 #include <bsec2.h>
 #include "config/bme680_iaq_33v_3s_28d/bsec_iaq.h"
 
-#include "Plantower_PMS7003.h"
+
 #include <SoftwareSerial.h>
 char output[256];
-Plantower_PMS7003 pms7003 = Plantower_PMS7003();
-SoftwareSerial SoftSerial1(14, 12);
 
-#include "Adafruit_SHT4x.h"
+SoftwareSerial SoftSerial1(14, 12);
+#include <NOxGasIndexAlgorithm.h>
+#include <SensirionI2CSgp41.h>
+#include <SensirionI2cSht4x.h>
+#include <VOCGasIndexAlgorithm.h>
+
+SensirionI2cSht4x sht4x;
+SensirionI2CSgp41 sgp41;
+
+VOCGasIndexAlgorithm voc_algorithm;
+NOxGasIndexAlgorithm nox_algorithm;
+
+// time in seconds needed for NOx conditioning
+uint16_t conditioning_s = 10;
+
+char errorMessage[256];
+
+//#include "Adafruit_SHT4x.h"
 #include <Adafruit_SCD30.h>
 Adafruit_SCD30  scd30;
 #define SCD_OFFSET 210
@@ -36,8 +51,8 @@ String dataMessage;
     if (millis() - __every__##interval >= interval && (__every__##interval = millis()))
 
 
-Adafruit_SHT4x sht4 = Adafruit_SHT4x();
-  sensors_event_t humidity, temp;
+//Adafruit_SHT4x sht4 = Adafruit_SHT4x();
+ // sensors_event_t humidity, temp;
 
 #define ONE_WIRE_BUS 14                          //PIN of the Maxim DS18B20 temperature sensor
 #define TIME_INTERVAL 15000
@@ -205,9 +220,9 @@ BLYNK_WRITE(V10)
           terminal.print(humDHT);
           terminal.print(", Dasllastemp: ");
           terminal.print(dallastemp);
-          sht4.getEvent(&humidity, &temp);
-          tempSHT = temp.temperature;
-          humSHT = humidity.relative_humidity;
+          //sht4.getEvent(&humidity, &temp);
+         // tempSHT = //temp.temperature;
+          //humSHT = //humidity.relative_humidity;
           terminal.print(", TempSHT: ");
           terminal.print(tempSHT);
           terminal.print(", HumSHT: ");
@@ -273,9 +288,7 @@ BLYNK_WRITE(V10)
       terminal.println(" ppm");
       terminal.flush();
     }
-    if (String("particles") == param.asStr()) {
-      readPMSverbose();
-    }
+
     terminal.flush();
 
 }
@@ -451,50 +464,20 @@ bool saveState(Bsec2 bsec)
     return true;
 }
 
-void readPMSverbose(void){
-        sprintf(output, "\nSensor Version: %d    Error Code: %d\n",
-                      pms7003.getHWVersion(),
-                      pms7003.getErrorCode());
-        terminal.print(output);
-
-        sprintf(output, "    PM1.0 (ug/m3): %2d     [atmos: %d]\n",
-                      pms7003.getPM_1_0(),
-                      pms7003.getPM_1_0_atmos());              
-        terminal.print(output);
-        sprintf(output, "    PM2.5 (ug/m3): %2d     [atmos: %d]\n",
-                      pms7003.getPM_2_5(),
-                      pms7003.getPM_2_5_atmos());
-        terminal.print(output);
-        sprintf(output, "    PM10  (ug/m3): %2d     [atmos: %d]\n",
-                      pms7003.getPM_10_0(),
-                      pms7003.getPM_10_0_atmos());              
-        terminal.print(output);
-
-        sprintf(output, "\n    RAW: %2d[>0.3] %2d[>0.5] %2d[>1.0] %2d[>2.5] %2d[>5.0] %2d[>10]\n",
-                      pms7003.getRawGreaterThan_0_3(),
-                      pms7003.getRawGreaterThan_0_5(),
-                      pms7003.getRawGreaterThan_1_0(),
-                      pms7003.getRawGreaterThan_2_5(),
-                      pms7003.getRawGreaterThan_5_0(),
-                      pms7003.getRawGreaterThan_10_0());
-        terminal.print(output);
-}
-
-void readPMS(void){
- if (pms7003.hasNewData()) {
-
-       up3 = pms7003.getRawGreaterThan_0_3();
-       up5 = pms7003.getRawGreaterThan_0_5();
-       up10 = pms7003.getRawGreaterThan_1_0();
-       up25 = pms7003.getRawGreaterThan_2_5();
-       up50 = pms7003.getRawGreaterThan_5_0();
-       up100 = pms7003.getRawGreaterThan_10_0();
-   // firstvalue = 0;
-  }
-
-}
 
 
+
+    uint16_t error;
+    float humidity = 0;     // %RH
+    float temperature = 0;  // degreeC
+    uint16_t srawVoc = 0;
+    uint16_t srawNox = 0;
+    uint16_t defaultCompenstaionRh = 0x8000;  // in ticks as defined by SGP41
+    uint16_t defaultCompenstaionT = 0x6666;   // in ticks as defined by SGP41
+    uint16_t compensationRh = 0;              // in ticks as defined by SGP41
+    uint16_t compensationT = 0;               // in ticks as defined by SGP41
+            int32_t voc_index;
+        int32_t nox_index;
 
 void setup(void) {
   pinMode(1, INPUT_PULLUP);
@@ -506,7 +489,7 @@ void setup(void) {
   }
   Serial.begin(9600);
   SoftSerial1.begin(9600);
-  pms7003.init(&SoftSerial1);
+
 
     WiFi.mode(WIFI_STA);
     WiFi.setPhyMode(WIFI_PHY_MODE_11B);
@@ -533,7 +516,7 @@ void setup(void) {
     Blynk.config(auth, IPAddress(192, 168, 50, 197), 8080);
     Blynk.connect();
     Serial.println("Blynk connected");
-  terminal.println("Adafruit SHT4x test");
+  /*terminal.println("Adafruit SHT4x test");
   if (! sht4.begin()) {
     terminal.println("Couldn't find SHT4x");
     //while (1) delay(1);
@@ -543,7 +526,11 @@ void setup(void) {
   terminal.print("terminal number 0x");
   terminal.println(sht4.readSerial(), HEX);
   sht4.setPrecision(SHT4X_HIGH_PRECISION);
-  sht4.setHeater(SHT4X_NO_HEATER);
+  sht4.setHeater(SHT4X_NO_HEATER);*/
+      Wire.begin();
+
+    sht4x.begin(Wire, SHT40_I2C_ADDR_44);
+    sgp41.begin(Wire);
  
     
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -576,7 +563,7 @@ void setup(void) {
     #ifdef USE_EEPROM
     EEPROM.begin(BSEC_MAX_STATE_BLOB_SIZE + 1);
   #endif
-    Wire.begin();
+   // Wire.begin();
     pinMode(PANIC_LED, OUTPUT);
 
     /* Valid for boards with USB-COM. Wait until the port is open */
@@ -657,6 +644,69 @@ void loop(void) {
     co2SCD = scd30.CO2;
   }
 
+  every(1000){
+
+
+    // 3. Measure SGP4x signals
+    if (conditioning_s > 0) {
+        // During NOx conditioning (10s) SRAW NOx will remain 0
+        error =
+            sgp41.executeConditioning(compensationRh, compensationT, srawVoc);
+        conditioning_s--;
+    } else {
+        error = sgp41.measureRawSignals(compensationRh, compensationT, srawVoc,
+                                        srawNox);
+    }
+
+    // 4. Process raw signals by Gas Index Algorithm to get the VOC and NOx
+    // index
+    //    values
+    if (error) {
+        Serial.print("SGP41 - Error trying to execute measureRawSignals(): ");
+        errorToString(error, errorMessage, 256);
+        Serial.println(errorMessage);
+    } else {
+         voc_index = voc_algorithm.process(srawVoc);
+         nox_index = nox_algorithm.process(srawNox);
+        Serial.print("VOC Index: ");
+        Serial.print(voc_index);
+        Serial.print("\t");
+        Serial.print("NOx Index: ");
+        Serial.println(nox_index);
+    }
+  }
+
+  every(15000){
+            error = sht4x.measureHighPrecision(temperature, humidity);
+    if (error) {
+        terminal.print(
+            "SHT4x - Error trying to execute measureHighPrecision(): ");
+        errorToString(error, errorMessage, 256);
+        terminal.println(errorMessage);
+        terminal.println("Fallback to use default values for humidity and "
+                       "temperature compensation for SGP41");
+        compensationRh = defaultCompenstaionRh;
+        compensationT = defaultCompenstaionT;
+        terminal.flush();
+    } else {
+        Serial.print("T:");
+        Serial.print(temperature);
+        Serial.print("\t");
+        Serial.print("RH:");
+        Serial.println(humidity);
+
+        // convert temperature and humidity to ticks as defined by SGP41
+        // interface
+        // NOTE: in case you read RH and T raw signals check out the
+        // ticks specification in the datasheet, as they can be different for
+        // different sensors
+        tempSHT = temperature;
+        humSHT = humidity;
+        compensationT = static_cast<uint16_t>((temperature + 45) * 65535 / 175);
+        compensationRh = static_cast<uint16_t>(humidity * 65535 / 100);
+    }
+  }
+
   every (120000)
   {
        if (!scd30.startContinuousMeasurement(int(presBME))){
@@ -674,14 +724,13 @@ void loop(void) {
     humDHT = dhumidity;
   }*/
   if (WiFi.status() == WL_CONNECTED) {Blynk.run();} 
-    pms7003.updateFrame();
-    readPMS();
+
     if  (millis() - millisBlynk >= (updateSeconds * 1000))  //if it's been 30 seconds
     {
         millisBlynk = millis();
-          sht4.getEvent(&humidity, &temp);
-          tempSHT = temp.temperature;
-          humSHT = humidity.relative_humidity;
+          //sht4.getEvent(&humidity, &temp);
+         // tempSHT = temp.temperature;
+         // humSHT = humidity.relative_humidity;
         abshum = (6.112 * pow(2.71828, ((17.67 * tempSHT)/(tempSHT + 243.5))) * humSHT * 2.1674)/(273.15 + tempSHT);
         //abshum2 = (6.112 * pow(2.71828, ((17.67 * dallastemp)/(dallastemp + 243.5))) * humDHT * 2.1674)/(273.15 + dallastemp);
         dewpoint = tempSHT - ((100 - humSHT)/5);
@@ -725,6 +774,10 @@ void loop(void) {
         Blynk.virtualWrite(V42, tempSCD);
         Blynk.virtualWrite(V43, humSCD);
         Blynk.virtualWrite(V45, co2SCD);
+        Blynk.virtualWrite(V71, srawVoc);
+        Blynk.virtualWrite(V72, srawNox);
+        Blynk.virtualWrite(V73, voc_index);
+        Blynk.virtualWrite(V74, nox_index);
         }
     }
 }
