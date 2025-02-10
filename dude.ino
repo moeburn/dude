@@ -17,7 +17,8 @@
 #include <bsec2.h>
 #include "config/bme680_iaq_33v_3s_28d/bsec_iaq.h"
 
-/*
+
+#include <SoftwareSerial.h>
 char output[256];
 
 SoftwareSerial SoftSerial1(14, 12);
@@ -35,7 +36,7 @@ NOxGasIndexAlgorithm nox_algorithm;
 // time in seconds needed for NOx conditioning
 uint16_t conditioning_s = 10;
 
-char errorMessage[256];*/
+char errorMessage[256];
 
 //#include "Adafruit_SHT4x.h"
 #include <Adafruit_SCD30.h>
@@ -135,8 +136,8 @@ int LED1pin = 14;
 const char* ssid = "mikesnet";
 const char* password = "springchicken";
 char auth[] = "Eg3J3WA0zM3MA7HGJjT_P6uUh73wQ2ed"; //BLYNK
-char remoteAuth2[] = "8_-CN2rm4ki9P3i_NkPhxIbCiKd5RXhK"; //hubert clock auth
-char remoteAuth3[] = "qS5PQ8pvrbYzXdiA4I6uLEWYfeQrOcM4"; //indiana clock auth 
+char remoteAuth2[] = "pO--Yj8ksH2fjJLMW6yW9trkHBhd9-wc"; //indiana clock auth
+char remoteAuth3[] = "qS5PQ8pvrbYzXdiA4I6uLEWYfeQrOcM4"; //indiana clock auth
 char remoteAuth4[] = "eT_7FL7IUpqonthsAr-58uTK_-su_GYy"; //wsbedroom auth
 
 const char* ntpServer = "pool.ntp.org";
@@ -173,6 +174,7 @@ dallastemp = temperature;
   return( false );
 }*/
 
+
 WidgetBridge bridge2(V60);
 WidgetBridge bridge3(V70);
 WidgetBridge bridge4(V100);
@@ -182,7 +184,6 @@ BLYNK_CONNECTED() {
   bridge3.setAuthToken (remoteAuth3);
   bridge4.setAuthToken (remoteAuth4);
 }
-
 unsigned int up3, up5, up10, up25, up50, up100;
 
 BLYNK_WRITE(V10)
@@ -531,6 +532,8 @@ void setup(void) {
   sht4.setHeater(SHT4X_NO_HEATER);*/
       Wire.begin();
 
+    sht4x.begin(Wire, SHT40_I2C_ADDR_44);
+    sgp41.begin(Wire);
  
     
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -644,6 +647,68 @@ void loop(void) {
     co2SCD = scd30.CO2;
   }
 
+  every(1000){
+
+
+    // 3. Measure SGP4x signals
+    if (conditioning_s > 0) {
+        // During NOx conditioning (10s) SRAW NOx will remain 0
+        error =
+            sgp41.executeConditioning(compensationRh, compensationT, srawVoc);
+        conditioning_s--;
+    } else {
+        error = sgp41.measureRawSignals(compensationRh, compensationT, srawVoc,
+                                        srawNox);
+    }
+
+    // 4. Process raw signals by Gas Index Algorithm to get the VOC and NOx
+    // index
+    //    values
+    if (error) {
+        Serial.print("SGP41 - Error trying to execute measureRawSignals(): ");
+        errorToString(error, errorMessage, 256);
+        Serial.println(errorMessage);
+    } else {
+         voc_index = voc_algorithm.process(srawVoc);
+         nox_index = nox_algorithm.process(srawNox);
+        Serial.print("VOC Index: ");
+        Serial.print(voc_index);
+        Serial.print("\t");
+        Serial.print("NOx Index: ");
+        Serial.println(nox_index);
+    }
+  }
+
+  every(15000){
+            error = sht4x.measureHighPrecision(temperature, humidity);
+    if (error) {
+        terminal.print(
+            "SHT4x - Error trying to execute measureHighPrecision(): ");
+        errorToString(error, errorMessage, 256);
+        terminal.println(errorMessage);
+        terminal.println("Fallback to use default values for humidity and "
+                       "temperature compensation for SGP41");
+        compensationRh = defaultCompenstaionRh;
+        compensationT = defaultCompenstaionT;
+        terminal.flush();
+    } else {
+        Serial.print("T:");
+        Serial.print(temperature);
+        Serial.print("\t");
+        Serial.print("RH:");
+        Serial.println(humidity);
+
+        // convert temperature and humidity to ticks as defined by SGP41
+        // interface
+        // NOTE: in case you read RH and T raw signals check out the
+        // ticks specification in the datasheet, as they can be different for
+        // different sensors
+        tempSHT = temperature;
+        humSHT = humidity;
+        compensationT = static_cast<uint16_t>((temperature + 45) * 65535 / 175);
+        compensationRh = static_cast<uint16_t>(humidity * 65535 / 100);
+    }
+  }
 
   every (120000)
   {
