@@ -136,7 +136,7 @@ int LED1pin = 14;
 const char* ssid = "mikesnet";
 const char* password = "springchicken";
 char auth[] = "Eg3J3WA0zM3MA7HGJjT_P6uUh73wQ2ed"; //BLYNK
-char remoteAuth2[] = "pO--Yj8ksH2fjJLMW6yW9trkHBhd9-wc"; //indiana clock auth
+char remoteAuth2[] = "8_-CN2rm4ki9P3i_NkPhxIbCiKd5RXhK"; //hubert clock auth
 char remoteAuth3[] = "qS5PQ8pvrbYzXdiA4I6uLEWYfeQrOcM4"; //indiana clock auth
 char remoteAuth4[] = "eT_7FL7IUpqonthsAr-58uTK_-su_GYy"; //wsbedroom auth
 
